@@ -1,0 +1,290 @@
+---
+title: "MachineLearningFinalProject"
+author: "Yun-Shiuan Hsu & Elisabeth Gangwer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+load("final_project_data.RData")
+```
+
+Clean & Finalize Dataset, Pull out top 10 materials, make them factors
+```{r}
+art_dat <- art_data[,5:23]
+
+canvas <- rep(0, nrow(art_dat))
+canvas[grep("canvas", art_dat$material)] <- 1
+art_dat$canvas <- as.factor(canvas)
+
+paper <- rep(0, nrow(art_dat))
+paper[grep("paper",art_dat$material)] <- 1
+art_dat$paper <- as.factor(paper)
+
+prints <- rep(0, nrow(art_dat))
+prints[grep("prints",art_dat$material)] <- 1
+art_dat$prints <- as.factor(prints)
+
+ink <- rep(0, nrow(art_dat))
+ink[grep("ink",art_dat$material)] <- 1
+art_dat$ink <- as.factor(ink)
+
+board <- rep(0, nrow(art_dat))
+board[grep("board",art_dat$material)] <- 1
+art_dat$board <- as.factor(board)
+
+wove <- rep(0, nrow(art_dat))
+wove[grep("wove",art_dat$material)] <- 1
+art_dat$wove <- as.factor(wove)
+
+
+etching <- rep(0, nrow(art_dat))
+etching[grep("etching",art_dat$material)] <- 1
+art_dat$etching <- as.factor(etching)
+
+lithograph <- rep(0, nrow(art_dat))
+lithograph[grep("lithograph",art_dat$material)] <- 1
+art_dat$lithograph <- as.factor(lithograph)
+
+art_dat <- art_dat[, c(1, 14, 3:13, 15:27)]
+art_dat$FaceCount <- as.numeric(art_dat$FaceCount)
+
+str(art_dat)
+
+# There are missing variables in the height & width columns, use mice to impute the missing information...
+library(mice)
+feat_vars <- names(art_dat)[3:4]
+imputed_values <- mice( data = art_dat[, feat_vars], 
+                        m = 1, 
+                        maxit = 40, 
+                        method = "cart", 
+                        print = FALSE)
+art_dat[, feat_vars] <- complete(imputed_values,1)
+summary(art_dat[,feat_vars])
+```
+
+
+```{r}
+library(rpart)
+library(rattle)
+library(rpart.plot)     
+library(RColorBrewer) 
+library(caret)
+# Remove price
+art_dat_noprice <- art_dat[,-1]
+
+tree1 <- rpart(log_price ~., data = art_dat_noprice)
+
+par(xpd = NA)
+plot(tree1)
+text(tree1, digits = 3)
+
+fancyRpartPlot(tree1)
+
+printcp(tree1)
+plotcp(tree1)
+
+tree2 <- rpart(log_price ~ ., 
+               data = art_dat_noprice, 
+               control = rpart.control(cp=0.011))
+fancyRpartPlot(tree2)
+
+```
+
+```{r}
+art_dat <- art_dat[, c(1:3, 18, 14)]
+set.seed(111111)
+total_obs <- dim(art_dat_noprice)[1]
+
+train_data_indices <- sample(1:total_obs, 0.8*total_obs)
+train_dat <- art_dat[train_data_indices, ][, -1]
+test_dat <- art_dat[-train_data_indices, ]
+train_obs <- dim(train_dat)[1]
+```
+
+```{r}
+lm1 <- lm(log_price ~ ., data = train_dat)
+summary(lm1)
+```
+R-Squared = 0.3931 Adjusted R-Squared is 0.393... 
+
+```{r}
+library(forecast)
+lm_pred <- exp(predict(lm1, newdata=test_dat)-1)
+accuracy(lm_pred, test_dat$price)
+```
+RMSE: 2,455,687 
+MAE: 245,948.2
+
+```{r}
+library(randomForest)
+set.seed(111111)
+bag_mod <- randomForest(log_price ~., # Set tree formula
+                data = train_dat, # Set dataset
+                mtry = 3, # Set mtry to number of variables 
+                ntree = 20)
+bag_predict <- exp(predict(bag_mod, test_dat)) - 1
+accuracy(bag_predict, test_dat$price)
+```
+RMSE: 2,167,505
+MAE: 217,297.8
+
+```{r}
+library(xgboost)
+library(Metrics)
+train_dat1 <- model.matrix(log_price ~ ., data = train_dat)[,-1]
+train_dat1 <- cbind.data.frame(train_dat$log_price, train_dat1)
+colnames(train_dat1)[1] <- "log_price"
+
+test_dat1 <- model.matrix(log_price ~ ., data = test_dat)[,-1]
+test_dat1 <- cbind.data.frame(test_dat$log_price, test_dat1)
+colnames(test_dat1)[1] <- "log_price"
+test_dat1 <- test_dat1[, -2]
+# Create training matrix
+dtrain <- xgb.DMatrix(data = as.matrix(train_dat1[, 1:4]), label = as.numeric(train_dat1$log_price) - 1)
+# Create test matrix
+dtest <- xgb.DMatrix(data = as.matrix(test_dat1[, 1:4]), label = as.numeric(test_dat1$log_price) - 1)
+set.seed(111111)
+bst_1 <- xgboost(data = dtrain, 
+               nrounds = 1000, 
+               verbose = 1, 
+               print_every_n = 20)
+
+ 
+boost_preds_1 <- predict(bst_1, dtest)
+pred_dat <- cbind.data.frame(boost_preds_1 , test_dat$price)
+rmse(test_dat$price, boost_preds_1)
+
+```
+RMSE: 2,452,953
+
+
+```{r}
+art_dat <- art_data[,5:23]
+
+canvas <- rep(0, nrow(art_dat))
+canvas[grep("canvas", art_dat$material)] <- 1
+art_dat$canvas <- as.factor(canvas)
+
+paper <- rep(0, nrow(art_dat))
+paper[grep("paper",art_dat$material)] <- 1
+art_dat$paper <- as.factor(paper)
+
+prints <- rep(0, nrow(art_dat))
+prints[grep("prints",art_dat$material)] <- 1
+art_dat$prints <- as.factor(prints)
+
+ink <- rep(0, nrow(art_dat))
+ink[grep("ink",art_dat$material)] <- 1
+art_dat$ink <- as.factor(ink)
+
+board <- rep(0, nrow(art_dat))
+board[grep("board",art_dat$material)] <- 1
+art_dat$board <- as.factor(board)
+
+wove <- rep(0, nrow(art_dat))
+wove[grep("wove",art_dat$material)] <- 1
+art_dat$wove <- as.factor(wove)
+
+
+etching <- rep(0, nrow(art_dat))
+etching[grep("etching",art_dat$material)] <- 1
+art_dat$etching <- as.factor(etching)
+
+lithograph <- rep(0, nrow(art_dat))
+lithograph[grep("lithograph",art_dat$material)] <- 1
+art_dat$lithograph <- as.factor(lithograph)
+
+art_dat <- art_dat[, c(1, 14, 3:13, 15:27)]
+art_dat$FaceCount <- as.numeric(art_dat$FaceCount)
+
+str(art_dat)
+
+# There are missing variables in the height & width columns, use mice to impute the missing information...
+library(mice)
+feat_vars <- names(art_dat)[3:4]
+imputed_values <- mice( data = art_dat[, feat_vars], 
+                        m = 1, 
+                        maxit = 40, 
+                        method = "cart", 
+                        print = FALSE)
+art_dat[, feat_vars] <- complete(imputed_values,1)
+summary(art_dat[,feat_vars])
+
+art_dat$price_class <- rep(NA, nrow(art_dat))
+art_dat$price_class <- ifelse(art_dat$price < 1638, "lower", 
+                               ifelse(art_dat$price < 6605, "lower_mid", 
+                                      ifelse(art_dat$price < 23750, "higher_mid","high")))
+art_dat$price_class <- as.factor(art_dat$price_class)
+summary(art_dat)
+art_dat <- art_dat[, c(3:27)]
+```
+
+```{r}
+set.seed(111111)
+total_obs <- dim(art_dat)[1]
+
+train_data_indices <- sample(1:total_obs, 0.8*total_obs)
+train_dat <- art_dat[train_data_indices, ]
+test_dat <- art_dat[-train_data_indices, ]
+train_obs <- dim(train_dat)[1]
+```
+
+
+```{r}
+library(nnet)
+fit1 <- multinom(price_class ~., data = train_dat)
+
+class_labels <- levels(train_dat$price_class)
+fit1_pred <- predict(fit1, newdata = test_dat, type = 'probs')
+fit1_pred_class <- factor(class_labels[apply(fit1_pred, 1, which.max)])
+fit1_acc <- confusionMatrix(fit1_pred_class, reference=test_dat$price_class)
+fit1_acc
+```
+
+
+```{r}
+bag_mod2 <- randomForest(price_class ~ ., 
+                         data = train_dat, 
+                         mtry = 24, 
+                         ntree = 100)
+bag_predict <- predict(bag_mod2, newdata = test_dat, type = 'prob')
+bag_predict_class <- factor(class_labels[apply(bag_predict, 1, which.max)])
+bag_predict_acc <- confusionMatrix(bag_predict_class, reference = test_dat$price_class)
+bag_predict_acc
+```
+
+
+0 - high
+1 - higher_mid 
+2 - lower 
+3 - lower_mid 
+
+```{r}
+label <- as.integer(art_dat$price_class) - 1
+train_label <- label[train_data_indices]
+train_dat1 <- model.matrix(price_class ~ ., data = train_dat)[,-1]
+train_dat1 <- cbind.data.frame(train_label, train_dat1)
+colnames(train_dat1)[1] <- "price_class"
+
+test_label <- label[-train_data_indices]
+test_dat1 <- model.matrix(price_class ~ ., data = test_dat)[,-1]
+test_dat1 <- cbind.data.frame(test_label, test_dat1)
+colnames(test_dat1)[1] <- "price_class"
+
+# Create training matrix
+dtrain <- xgb.DMatrix(data = as.matrix(train_dat1[, 1:32]), label = train_label)
+# Create test matrix
+dtest <- xgb.DMatrix(data = as.matrix(test_dat1[, 1:32]), label = test_label)
+
+bst_1 <- xgboost(data = dtrain, 
+                 nrounds = 100, 
+                 verbose = 1,
+                 print_every_n = 20, 
+                 
+                 objective = "multi:softprob")
+```
+
+
+
