@@ -1,0 +1,186 @@
+---
+title: "Assignment 2 - Logistic Regression"
+author: "ITAO 40420 - Machine Learning"
+date: "6 Nov 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Assignment 2
+
+For this analysis we will be using churn data. The dataset is stored as `churn_data.rda` which can be loaded in by running the below command if the file is located in your working directory or else by accessing the file through file->open file
+
+```{r Load Data 2}
+load("churn_data.rda") # Load churn dataset
+library(ggplot2)
+library(plotmo)
+library(glmnet)
+```
+
+We can view a summary of this dataset by running `summary()`:
+
+```{r}
+summary(churn_data)
+```
+
+The variables we have are:
+
+* Gender - Whether the customer is a male or a female
+* SeniorCitizen - Whether the customer is a senior citizen or not (1,0)
+* Partner - Whether the customer has a partner or nor (Yes, No)
+* Dependents - Whether the customer has dependents or not (Yes, No)
+* tenure - Number of months the customer has stayed with the company
+* PhoneService - Whether the customer has a phone service of no (Yes, No)
+* MultipleLines - Whether the customer has multiple lines or not (Yes, No, No phone service)
+* InternetService - Customer's internet service provider (DSL, Fiber optic, No)
+* OnlineSecurity - Whether the customer has online security or not (Yes, No, No internet service)
+* OnlineBackup - Whether the customer has online backup or not (Yes, No, No internet service)
+* DeviceProtection - Whether the customer has tech support or not (Yes, No, No internet service)
+* StreamingTV - Whether the customer has streaming TV or not (Yes, No, No internet service)
+* StreamingMovies - Whether the customer has streaming movies or not (Yes, No, No internet service)
+* Contract - The contract term of the customer (Month-to-month, One year, Two year)
+* PaperlessBilling - Whether the customer has paperless billing or not (Yes, No)
+* PaymentMethod - The customer's payment method (Electronic CHECK, Mailed check, Bank transfer (automatic), Credit card (automatic))
+* MonthlyCharges - The amount charged to the customer monthly
+* TotalCharges - The total amount charged to the customer
+* Churn - Whether the customer churned or not (1 = Yes or 0 = No)
+
+
+The response variable for this dataset is `Churn`:
+
+```{r}
+summary(as.factor(churn_data$Churn))
+```
+
+
+For the assignment please carry out the following tasks/answer the following questions: (12 Points)
+
+* 1 - Create at least two visualizations potentially revealing factors with predictive power (2 Points)
+```{r}
+plot_dat <- churn_data 
+plot_dat$Churn <- as.factor(plot_dat$Churn)
+g_1 <- ggplot(plot_dat, 
+              aes(x = tenure, 
+                  fill = Churn)) + 
+  geom_density(alpha = 0.5) + 
+    theme_set(theme_bw(base_size = 22) ) + 
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),  
+        panel.border = element_blank(), 
+        panel.background = element_blank()) + 
+  labs(x = "Tenure", title = "Tenure - Churn",
+       fill = "Churn") + # Set labels
+  scale_fill_manual(values = c("1" = "red", "0" = "blue"), 
+                    labels = c("1" = "Churn", "0" = "No Churn")) 
+g_1 
+```
+<br> 
+This visualization shows that the lower tenure value has a higher churn rate. Meaning the less time a customer has stayed with the company, the more likely they are to churn.
+<br> <br>
+```{r}
+g_2 <- ggplot(plot_dat, 
+              aes(x = TotalCharges, 
+                  fill = Churn)) + 
+  geom_density(alpha = 0.5) + 
+    theme_set(theme_bw(base_size = 22) ) + 
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),  
+        panel.border = element_blank(), 
+        panel.background = element_blank()) + 
+  labs(x = "Total Charges", title = "Total Charges - Churn",
+       fill = "Churn") + # Set labels
+  scale_fill_manual(values = c("1" = "red", "0" = "blue"), 
+                    labels = c("1" = "Churn", "0" = "No Churn")) 
+g_2 
+```
+<br> This visualization shows the more money a customer has spent or was charged, the less like they are to Churn. 
+<br><br>
+* 2 - Fit a logistic regression model to the data. (Remember you can use `resp ~.,` to include all explanatory variables in the model) (2 Points)
+```{r}
+fit1 <- glm(Churn ~ ., 
+            family = binomial(link = 'logit'), 
+            data = churn_data)
+summary(fit1)
+```
+
+* 3 - What features are significant in your logistic regression model? (1 Point)
+```{r}
+summary_fit1 <- summary(fit1)
+fit1_coef <- summary_fit1$coefficients[summary_fit1$coefficients[,4] < 0.001, ]
+fit1_coef
+```
+<br> 
+The features that are significant in the logistic regression model are `tenure`, `ContractOne year`, `ContractTwo year`, `PaperlessBillingYes`, and `TotalCharges`. <br><br>
+
+* 4 - What is the AIC of your logistic regression model?  (1 Point) <br> <br> The AIC of `fit1` is 5874.3. <br> <br>
+
+* 5 - Add an interaction term to the logistic regression model? (1 Point)
+```{r}
+
+fit2 <- glm(Churn ~ . + PaymentMethod*Contract, 
+            family = binomial(link = 'logit'), 
+            data = churn_data)
+summary(fit2)
+```
+
+* 6 - Does the addition of the interaction term increase or decrease the AIC? What is the new AIC for the model? (1 Point)
+<br> The addition of the interaction term increases the AIC by 5. The new AIC for the model is 5879.3. 
+<br> <br> 
+* 7 - Fit a lasso logistic regression model to the data. (1 Point)
+```{r}
+# Standardize Continuous Variables 
+x_data <- as.data.frame(churn_data)
+x_data$tenure <- scale(x_data$tenure)
+x_data$MonthlyCharges <- scale(x_data$MonthlyCharges)
+x_data$TotalCharges <- scale(x_data$TotalCharges)
+
+# X Variables
+x_vars <- model.matrix(Churn ~., 
+                       x_data)[,-1]
+# Find the Best Lambda 
+set.seed(123) 
+lambda_seq <- 10^seq(4, -4, by = -.1)
+
+# Fit cross-validated lasso model
+cv.lasso <- cv.glmnet(x = x_vars, 
+                 y = churn_data$Churn, 
+                 alpha = 1, 
+                 family = "binomial", # Logistic Regression
+                 lambda = lambda_seq, 
+                 nfolds = 10)
+
+best_lam <- cv.lasso$lambda.1se 
+best_lam # Extract best lambda
+lasso_fit <- glmnet(x = x_vars, 
+                    y = churn_data$Churn, 
+                    alpha = 1,
+                    family = "binomial",
+                    lambda = best_lam)
+coef(lasso_fit)
+
+# Index coefficients that are non-zero positive/negative
+coef_lasso <- cbind.data.frame(as.vector(coef(lasso_fit))) 
+rownames(coef_lasso) <- rownames(as.matrix(coef(lasso_fit)))
+colnames(coef_lasso)[1] <- 'BestLambdaLogisticRegression'
+positive_coef <- coef_lasso[coef_lasso$BestLambdaLogisticRegression > 0, , drop=F]
+negative_coef <- coef_lasso[coef_lasso$BestLambdaLogisticRegression < 0, , drop=F]
+```
+
+* 8 - Which coefficients were non-zero in the lasso model? Were they positive or negative? What does this imply? (1 Point) <br> <br>
+The coefficients that were positive and non-zero are `SeniorCitizen`, `MultipleLinesYes`,`InternetServiceFiber optic`, `StreamingTVYes`, `StreamingMoviesYes`, `PaperlessBillingYes` and `PaymentMethodElectronic check`.
+<br> <br>
+The coefficients that were non-zero and negative in the lasso model are
+`DependentsYes`, `tenure`, `PhoneServiceYes`, `InternetServiceNo`, `OnlineSecurityNo internet service`, `OnlineSecurityYes`, `OnlineBackupNo internet service`, `DeviceProtectionNo internet service`, `TechSupportNo internet service`, `TechSupportYes`, `StreamingTVNo internet service`, `StreamingMoviesNo internet service`, `ContractOne year`, and `ContractTwo year`. <br> <br> 
+
+The positive coefficients imply the increased likelihood of a customer churn, while the negative coefficients imply the decreased likelihood of a customer churn.  
+<br>
+
+2 Points for analysis decisions and code quality.
+
+Please submit an an R-markdown document with the answers, optionally you can submit an R-script with the code used for your analysis and a document answering the specific questions, you can use word, pdf etc.
+
+Assignments can be submitted via Canvas or by email to mbarron2@nd.edu. 
+

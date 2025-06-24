@@ -1,0 +1,662 @@
+---
+title: "Random Forest Parameter Tuning - Machine Learning"
+author: "Elisabeth Gangwer"
+date: "24 November 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Lets first load a few packages which we will use for this analysis:
+
+```{r Load Packages}
+#install.packages("randomForest")
+#install.packages("caret")
+library(randomForest)
+library(caret)
+library(xgboost)
+library(xgboostExplainer)
+library(pROC)
+```
+
+## Random Forests
+
+The random forest algorithm works by building bootstrapped trees using only a selection of variables to split the data at each node.
+
+The tuning parameters we can use for random forests are:
+
+-   Number of trees - The number of trees we build in the model
+-   mtry - The number of variables tried at each split in the model
+-   nodesize - The minimum size of the terminal nodes (Default 5)
+
+Some other parameters that can affect the model are:
+
+-   sampsize - The sizes of the bootstrap sample to take (Can be used for imbalanced data by specifying the number of samples from each class to use.)
+-   maxnodes - The maximum number of terminal nodes in the model (This is generally controlled for using the nodesize parameter)
+-   replace - Should the sampled datasets used for each tree be taken with replacement for the data.(Answer for this is yes unless only using a subsample of the data)
+
+In general random forests will not overfit our data. Therefore we can build a large number of trees and focus on tuning the mtry and node size parameters. Which will allow us to visualize the parameter combinations and how they perform.
+
+## TOR Data
+
+For this analysis we are going to be analyzing internet connections to predict if they come from the dark web.
+
+Darknet is the unused address space of the internet which is not speculated to interact with other computers in the world. Any communication from the dark space is considered skeptical owing to its passive listening nature which accepts incoming packets, but outgoing packets are not supported. Due to the absence of legitimate hosts in the darknet, any traffic is contemplated to be unsought and is characteristically treated as probe, backscatter, or misconfiguration. Darknets are also known as network telescopes, sinkholes, or blackholes.
+
+To access the Darknet or Darkweb people will generally use the TOR browser:
+
+"Back in the mid-'90s, when the US Navy was looking into ways to securely communicate sensitive intelligence information, a mathematician and two computer scientists emerged from the Naval Research Lab with something called "onion routing." It was a new kind of technology that would protect your internet traffic with layers of privacy. By 2003, The Onion Routing project, acronymed Tor, was in the hands of the public, where its vast network of users -- the engine enabling Tor -- has since continued to grow.
+
+Today, thousands of volunteers all over the world are connecting their computers to the internet to create the Tor network by becoming "nodes" or "relays" for your internet traffic.
+
+At a basic level, Tor is a type of internet-connected network with its own internet browser. Once you connect to the internet with the Tor browser, your internet traffic is stripped of its first layer of identifying information as it enters the Tor network, and is then sent bouncing through those relay nodes, which serve to encrypt and privatize your data, layer by layer -- like an onion. Finally, your traffic hits an exit node and leaves the Tor network for the open web.
+
+Once you're in the Tor network, it's nearly impossible for others to track your traffic's manic pinballing path across the globe. And once you leave the Tor network via an exit node, the website you view (assuming it has HTTPS in front of its address) isn't sure which part of the world you're hailing from, offering you more privacy and protection."
+
+This data is stored as `tor_data.rda`. Lets load the data into the work space:
+
+```{r load tor data}
+load("tor_data.rda")
+```
+
+The data is already split into training and test sets using an 80/20 split called `train_db` and `test_db` respectively.
+
+```{r Summary Training Data}
+summary(train_db)
+```
+
+We see we have 24 variables for our analysis. These variables relate to the network connection made between the source and destination. The way internet traffic works is that data is broken up into packets and sent from the source to the destination which then sends packets back to the source. A flow becomes inactive after no packets have been observed for a period of time, this value is usually 15 seconds. The variables we have are:
+
+-   Flow.Duration - A flow refers to any connection or connection-like communication channel. The duration measures the length of time between the first and last packets sent.
+-   Flow.Bytes.s - Number of bytes sent in the connection
+-   Flow.Packets.s - Number of packets sent in the communication
+-   Flow.IAT.Mean - Packets flow inter arrival time Mean
+-   Flow.IAT.Std - Packets flow inter arrival time Standard deviation
+-   Flow.IAT.Max - Packets flow inter arrival time Max.
+-   Flow.IAT.Min - Packets flow inter arrival time Min
+-   Fwd.IAT.Mean - Forward inter arrival time, the time between two packets Sent forward direction Mean
+-   Fwd.IAT.Std - Forward inter arrival time, the time between two packets sent forward direction Standard deviation.
+-   Fwd.IAT.Max - Forward inter arrival time, the time between two packets sent forward direction Max
+-   Fwd.IAT.Min - Forward inter arrival time, the time between two packets sent forward direction Min.
+-   Bwd.IAT.Mean -Backward inter arrival time, the time between two packets sent backward Mean.
+-   Bwd.IAT.Std - Backward inter arrival time, the time between two packets sent backward Standard deviation.
+-   Bwd.IAT.Max - Backward inter arrival time, the time between two packets sent backward Max.
+-   Bwd.IAT.Min - Backward inter arrival time, the time between two packets sent backward Min
+-   Active.Mean - The amount of time a flow was active before becoming idle mean.
+-   Active.Std - The amount of time a flow was active before becoming idle Standard deviation
+-   Active.Max - The amount of time a flow was active before becoming idle Max.\
+-   Active.Min - The amount of time a flow was active before becoming idle Min.
+-   Idle.Mean - The amount of time a flow was idle before becoming active Mean
+-   Idle.Std - The amount of time a flow was idle before becoming active Std deviation.
+-   Idle.Max - The amount of time a flow was idle before becoming active Max.
+-   Idle.Min - The amount of time a flow was idle before becoming active Min.
+-   label - Either TOR indicating a TOR connection or nonTOR indication a non-TOR connection
+
+We will use the label as a response variable and the other variables as explanatory variables.
+
+# Best Random Forest
+
+It seems like the best set of parameters for this tree are mtry 12 and node size 1.
+
+```{r}
+rf_mod <- randomForest(label ~., # Set tree formula
+                         data = train_db, # Set dataset
+                         ntree = 200,
+                         nodesize = 1,
+                         mtry = 12) # Set number of trees to use
+rf_preds <- predict(rf_mod, test_db, type = "prob") # Create predictions for random forest model
+
+# Convert predictions to classes, using 0.5
+rf_pred_class <- rep("nonTOR", nrow(rf_preds))
+rf_pred_class[rf_preds[,2] >= 0.5] <- "TOR"
+
+t <- table(rf_pred_class, test_db$label) # Create table
+confusionMatrix(t, positive = "TOR") # Produce confusion matrix
+```
+
+## Assignment - 20 Total Marks
+
+-   Apply a bagging model to the DarkNet dataset (2 marks)
+
+```{r}
+set.seed(258506) # Set random number generator seed for reproducability
+
+bag_mod <- randomForest(label ~., # Set tree formula
+                data = train_db, # Set dataset
+                mtry = 23, # Set mtry to number of variables 
+                ntree = 200) # Set number of trees to use
+bag_mod
+# Predicting with Bagging Model
+bag_preds <- predict(bag_mod, test_db, type = 'prob')
+bag_preds_class <- rep("nonTOR", nrow(rf_preds))
+bag_preds_class[rf_preds[,2] >= 0.5] <- "TOR"
+```
+
+-   Apply an XGBoost model to the DarkNet dataset (2 marks)
+
+```{r xgboost prep}
+dtrain <- xgb.DMatrix(data = as.matrix(train_db[, 1:23]), label = as.numeric(train_db$label) -1)
+dtest <- xgb.DMatrix(data = as.matrix(test_db[, 1:23]), label = as.numeric(test_db$label) - 1)
+
+set.seed(111111)
+bst_1 <- xgboost(data = dtrain, # Set training data
+               nrounds = 1000,
+               early_stopping_rounds = 50,
+               verbose = 1, # 1 - Prints out fit
+               print_every_n = 50, # Prints out result every 50th iteration
+               objective = "binary:logistic", # Set objective
+               eval_metric = "auc",
+               eval_metric = "error") # Set evaluation metric to use
+```
+
+-   Visualize and decide the optimal number of iterations for XGBoost.(Plot the error curve against the number of iterations) (2 marks)
+
+```{r}
+plot_data<- bst_1$evaluation_log
+
+g_1 <- ggplot(plot_data, aes(x = iter, y = train_error))+
+  geom_smooth(alpha = 0.5) +
+  theme_bw() + # Set theme
+  theme(panel.grid.major = element_blank(), # Remove grid
+        panel.grid.minor = element_blank(), # Remove grid
+        panel.border = element_blank(), # Remove grid
+        panel.background = element_blank()) + # Remove grid 
+  labs(x = "Number of Trees", title = "Error Rate v Number of Trees",
+       y = "Error Rate")  # Set labels
+g_1
+```
+
+The error rate stabilizes a little before the 200th tree, will go with 200 iterations to tune the eta parameter.
+
+-   Tune the eta parameter for XGboost (2 marks)
+
+```{r}
+# Try an eta of 0.1 first 
+set.seed(111111)
+bst_2 <- xgb.cv(data = dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+               eta = 0.1, # Set learning rate
+              
+               nrounds = 200, # Set number of rounds
+               early_stopping_rounds = 50, 
+               verbose = 1, # 1 - Prints out fit
+               nthread = 1, # Set number of parallel threads
+               print_every_n = 20, # Prints out result every 20th iteration
+
+               objective = "binary:logistic", # Set objective
+               eval_metric = "auc",
+               eval_metric = "error") # Set evaluation metric to use
+
+set.seed(111111)
+bst_3 <- xgb.cv(data = dtrain,
+                nfold = 5,
+                
+                eta = 0.01, #try 0.01
+                
+                nrounds = 200,
+                early_stopping_rounds = 50, 
+                verbose = 1, 
+                nthread = 1, 
+                print_every_n = 20,
+                
+                objective = "binary:logistic", 
+                eval_metric = "auc",
+                eval_metric = "error") 
+
+set.seed(111111)
+bst_4 <- xgb.cv(data = dtrain,
+                nfold = 5,
+                
+                eta = 0.05, #try 0.05
+                
+                nrounds = 200,
+                early_stopping_rounds = 50, 
+                verbose = 1, 
+                nthread = 1, 
+                print_every_n = 20,
+                objective = "binary:logistic", 
+                eval_metric = "auc",
+                eval_metric = "error") 
+
+set.seed(111111)
+bst_5 <- xgb.cv(data = dtrain,
+                nfold = 5,
+                
+                eta = 0.15, #try 0.15
+                
+                nrounds = 200,
+                early_stopping_rounds = 50, 
+                verbose = 1, 
+                nthread = 1, 
+                print_every_n = 20,
+                objective = "binary:logistic", 
+                eval_metric = "auc",
+                eval_metric = "error") 
+
+set.seed(111111)
+bst_6 <- xgb.cv(data = dtrain,
+                nfold = 5,
+                
+                eta = 0.20, #try 0.20
+                
+                nrounds = 200,
+                early_stopping_rounds = 50, 
+                verbose = 1, 
+                nthread = 1, 
+                print_every_n = 20,
+                objective = "binary:logistic", 
+                eval_metric = "auc",
+                eval_metric = "error") 
+
+set.seed(111111)
+bst_7 <- xgb.cv(data = dtrain,
+                nfold = 5,
+                
+                eta = 0.3, #try 0.3
+                
+                nrounds = 200,
+                early_stopping_rounds = 50, 
+                verbose = 1, 
+                nthread = 1, 
+                print_every_n = 20,
+                objective = "binary:logistic", 
+                eval_metric = "auc",
+                eval_metric = "error") 
+
+set.seed(111111)
+bst_8 <- xgb.cv(data = dtrain, 
+                nfold = 5, 
+                
+                eta = 0.25, #try 0.25
+                
+                nrounds = 200, 
+                early_stopping_rounds = 50, 
+                verbose = 1, 
+                nthread = 1, 
+                print_every_n = 20, 
+                objective = "binary:logistic", 
+                eval_metric = "auc", 
+                eval_metric = "error")
+
+
+# Extract results for model with eta = 0.1
+pd2 <- cbind.data.frame(bst_2$evaluation_log[,c("iter", "test_error_mean")], rep(0.1, nrow(bst_2$evaluation_log)))
+names(pd2)[3] <- "eta"
+# Extract results for model with eta = 0.01
+pd3 <- cbind.data.frame(bst_3$evaluation_log[,c("iter", "test_error_mean")], rep(0.01, nrow(bst_3$evaluation_log)))
+names(pd3)[3] <- "eta"
+# Extract results for model with eta = 0.05
+pd4 <- cbind.data.frame(bst_4$evaluation_log[,c("iter", "test_error_mean")], rep(0.05, nrow(bst_4$evaluation_log)))
+names(pd4)[3] <- "eta"
+# Extract results for model with eta = 0.15
+pd5 <- cbind.data.frame(bst_5$evaluation_log[,c("iter", "test_error_mean")], rep(0.15, nrow(bst_5$evaluation_log)))
+names(pd5)[3] <- "eta"
+# Extract results for model with eta = 0.20
+pd6 <- cbind.data.frame(bst_6$evaluation_log[,c("iter", "test_error_mean")], rep(0.2, nrow(bst_6$evaluation_log)))
+names(pd6)[3] <- "eta"
+# Extract results for model with eta = 0.3
+pd7 <- cbind.data.frame(bst_7$evaluation_log[,c("iter", "test_error_mean")], rep(0.3, nrow(bst_7$evaluation_log)))
+names(pd7)[3] <- "eta"
+# Extract results for model with eta = 0.25
+pd8 <- cbind.data.frame(bst_8$evaluation_log[,c("iter", "test_error_mean")], rep(0.25, nrow(bst_8$evaluation_log)))
+names(pd8)[3] <- "eta"
+# Join datasets
+plot_data <- rbind.data.frame(pd2, pd3, pd4, pd5, pd6, pd7, pd8)
+# Converty ETA to factor
+plot_data$eta <- as.factor(plot_data$eta)
+# Plot points
+g_3 <- ggplot(plot_data, aes(x = iter, y = test_error_mean, color = eta))+
+  geom_point(alpha = 0.4) +
+  theme_bw() + # Set theme
+  theme(panel.grid.major = element_blank(), # Remove grid
+        panel.grid.minor = element_blank(), # Remove grid
+        panel.border = element_blank(), # Remove grid
+        panel.background = element_blank()) + # Remove grid 
+  labs(x = "Number of Trees", title = "Error Rate v Number of Trees",
+       y = "Error Rate", color = "Learning \n Rate")  # Set labels
+g_3
+
+bst_best <- xgboost(data = dtrain,
+                    eta = 0.25, # Set the learning rate to 0.25
+                    nrounds = 200,
+                    early_stopping_rounds = 20, 
+                    verbose = 1,
+                    print_every_n = 20,
+                    objective = "binary:logistic", 
+                    eval_metric = "auc",
+                    eval_metric = "error") 
+
+boost_preds_best <- predict(bst_best, dtest)
+pred_dat <- cbind.data.frame(boost_preds_best , test_db$label)
+boost_pred_class_best <- rep('nonTOR', length(boost_preds_best))
+boost_pred_class_best[boost_preds_best >= 0.5] <- 'TOR'
+```
+
+An ETA of 0.25 seems to be the optimal learning rate.
+
+-   Extract and plot the variable importance for XGBoost (1 mark)
+
+```{r}
+imp_mat <- xgb.importance(model = bst_best)
+xgb.plot.importance(imp_mat, top_n = 10)
+```
+
+-   Which features were most important for the XGBoost model? (1 mark) <br> The 10 most important features for the XGBoost model is Bwd.IAT.Std, Flow.Bytes.s, Flow.Duration, Bwd.IAT.Max, Flow.IAT.Min, Bwd.IAT.Min, Fwd.IAT.Mean, Fwd.IAT.Min, Bwd.IAT.Mean, and Flow.IAT.Max. <br> <br>
+
+-   Compare the three models (Last random forest from pre-assignment, bagging, XGBoost) using an ROC plot. (2 marks)
+
+```{r}
+# Random Forest Model 
+rf_preds_tor <- rf_preds[, "TOR"]
+roc1 = roc(test_db$label, rf_preds_tor)
+
+# Bagging Model
+bag_preds_tor <- bag_preds[, "TOR"]
+roc2 = roc(test_db$label, bag_preds_tor)
+
+# XGBoost Model 
+roc3 = roc(test_db$label, boost_preds_best)
+
+plot.roc(roc1, print.auc = TRUE, col = 'blue', print.auc.col = 'blue')
+plot.roc(roc2, print.auc = TRUE, col = 'red', print.auc.col = 'red')
+plot.roc(roc3, print.auc = TRUE, col = 'green', print.auc.col = 'green')
+```
+
+-   Which of the three models (random forest, bagging, XGBoost) gave the best results? (1 mark) <br> According to the AUC, the XGBoost model gave the best result with an AUC of 0.999.
+
+<br>
+
+-   Can you beat a sensitivity score of 0.96 while keeping overall accuracy above 0.98 and the cut-off set as 0.5? (4 marks - Partial Credit for Attempt)
+
+```{r, results = "hide"}
+# Tune the max depth and min child values 
+max_depth_vals <- c(3, 5, 7, 10, 15) # Create vector of max depth values
+min_child_weight <- c(1,3,5,7, 10, 15) # Create vector of min child values
+
+# Expand grid of parameter values
+cv_params <- expand.grid(max_depth_vals, min_child_weight)
+names(cv_params) <- c("max_depth", "min_child_weight")
+# Create results vector
+auc_vec <- error_vec <- rep(NA, nrow(cv_params)) 
+# Loop through results
+for(i in 1:nrow(cv_params)){
+  set.seed(111111)
+  bst_tune <- xgb.cv(data = dtrain, # Set training data
+  
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = 0.25, # Set learning rate
+              max.depth = cv_params$max_depth[i], # Set max depth
+              min_child_weight = cv_params$min_child_weight[i], # Set minimum number of samples in node to split
+             
+               
+              nrounds = 200, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+               
+              objective = "binary:logistic", # Set objective
+              eval_metric = "auc", # Set evaluation metric to use
+              eval_metric = "error") # Set evaluation metric to use
+  auc_vec[i] <- bst_tune$evaluation_log$test_auc_mean[bst_tune$best_ntreelimit]
+  error_vec[i] <- bst_tune$evaluation_log$test_error_mean[bst_tune$best_ntreelimit]
+  
+}
+
+```
+
+```{r}
+# Graph the results to find the max_depth and min_child_weight 
+res_db <- cbind.data.frame(cv_params, auc_vec, error_vec)
+names(res_db)[3:4] <- c("auc", "error") 
+res_db$max_depth <- as.factor(res_db$max_depth) # Convert tree number to factor for plotting
+res_db$min_child_weight <- as.factor(res_db$min_child_weight) # Convert node size to factor for plotting
+# Print AUC heatmap
+g_5 <- ggplot(res_db, aes(y = max_depth, x = min_child_weight, fill = auc)) + # set aesthetics
+  geom_tile() + # Use geom_tile for heatmap
+  theme_bw() + # Set theme
+  scale_fill_gradient2(low = "blue", # Choose low color
+    mid = "white", # Choose mid color
+    high = "red", # Choose high color
+    midpoint =mean(res_db$auc), # Choose mid point
+    space = "Lab", 
+    na.value ="grey", # Choose NA value
+    guide = "colourbar", # Set color bar
+    aesthetics = "fill") + # Select aesthetics to apply
+  labs(x = "Minimum Child Weight", y = "Max Depth", fill = "AUC") # Set labels
+g_5
+g_6 <- ggplot(res_db, aes(y = max_depth, x = min_child_weight, fill = error)) + # set aesthetics
+  geom_tile() + # Use geom_tile for heatmap
+  theme_bw() + # Set theme
+  scale_fill_gradient2(low = "blue", # Choose low color
+    mid = "white", # Choose mid color
+    high = "red", # Choose high color
+    midpoint =mean(res_db$error), # Choose mid point
+    space = "Lab", 
+    na.value ="grey", # Choose NA value
+    guide = "colourbar", # Set color bar
+    aesthetics = "fill") + # Select aesthetics to apply
+  labs(x = "Minimum Child Weight", y = "Max Depth", fill = "Error") # Set labels
+g_6 # Generate plot
+# min-child weight - 5 and Max Depth 10
+```
+
+```{r, results = "hide"}
+# Tune the gamma 
+gamma_vals <- c(0, 0.05, 0.1, 0.15, 0.2) # Create vector of gamma values
+
+# Be Careful - This can take a very long time to run
+set.seed(111111)
+auc_vec <- error_vec <- rep(NA, length(gamma_vals))
+for(i in 1:length(gamma_vals)){
+  bst_tune <- xgb.cv(data = dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = 0.25, # Set learning rate
+              max.depth = 10, # Set max depth
+              min_child_weight = 5, # Set minimum number of samples in node to split
+              gamma = gamma_vals[i], # Set minimum loss reduction for split
+
+              
+               
+              nrounds = 200, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+               
+              objective = "binary:logistic", # Set objective
+              eval_metric = "auc", # Set evaluation metric to use
+              eval_metric = "error") # Set evaluation metric to use
+  auc_vec[i] <- bst_tune$evaluation_log$test_auc_mean[bst_tune$best_ntreelimit]
+  error_vec[i] <- bst_tune$evaluation_log$test_error_mean[bst_tune$best_ntreelimit]
+  
+}
+cbind.data.frame(gamma_vals, auc_vec, error_vec)
+# Gamma value seems to have the highest AUC at 0.10, gamma value seems to have the lowest error at 0.00. Will use 0.10 due to the small difference between error value in 0.00 and 0.10.
+```
+
+```{r}
+# Re-calibrate the model
+set.seed(111111)
+bst <- xgb.cv(data = dtrain, 
+              
+              nfold = 5, 
+               
+              eta = 0.25, 
+              max.depth = 10, 
+              min_child_weight = 5, 
+              gamma = 0.1, 
+             
+               
+              nrounds = 1000, 
+              early_stopping_rounds = 50, 
+               
+              verbose = 1, 
+              nthread = 1, 
+              print_every_n = 50, 
+               
+              objective = "binary:logistic", 
+              eval_metric = "auc",
+              eval_metric = "error") 
+# Best iteration is at 230, will set nrounds to 250 
+```
+
+```{r, results = "hide"}
+# Tune the subsample and colsample
+subsample <- c(0.6, 0.7, 0.8, 0.9, 1) # Create vector of subsample values
+colsample_by_tree <- c(0.6, 0.7, 0.8, 0.9, 1) # Create vector of col sample values
+
+# Expand grid of tuning parameters
+cv_params <- expand.grid(subsample, colsample_by_tree)
+names(cv_params) <- c("subsample", "colsample_by_tree")
+# Create vectors to store results
+auc_vec <- error_vec <- rep(NA, nrow(cv_params)) 
+# Loop through parameter values
+for(i in 1:nrow(cv_params)){
+  set.seed(111111)
+  bst_tune <- xgb.cv(data = dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = 0.25, # Set learning rate
+              max.depth = 10, # Set max depth
+              min_child_weight = 5, # Set minimum number of samples in node to split
+              gamma = 0.1, # Set minimum loss reduction for split
+              subsample = cv_params$subsample[i], # Set proportion of training data to use in tree
+              colsample_bytree = cv_params$colsample_by_tree[i], # Set number of variables to use in each tree
+               
+              nrounds = 250, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+               
+              objective = "binary:logistic", # Set objective
+              eval_metric = "auc", # Set evaluation metric to use
+              eval_metric = "error") # Set evaluation metric to use
+  auc_vec[i] <- bst_tune$evaluation_log$test_auc_mean[bst_tune$best_ntreelimit]
+  error_vec[i] <- bst_tune$evaluation_log$test_error_mean[bst_tune$best_ntreelimit]
+  
+}
+```
+
+```{r}
+# Graph Subsample and ColSample 
+res_db <- cbind.data.frame(cv_params, auc_vec, error_vec)
+names(res_db)[3:4] <- c("auc", "error") 
+res_db$subsample <- as.factor(res_db$subsample) # Convert tree number to factor for plotting
+res_db$colsample_by_tree <- as.factor(res_db$colsample_by_tree) # Convert node size to factor for plotting
+
+g_7 <- ggplot(res_db, aes(y = colsample_by_tree, x = subsample, fill = auc)) + # set aesthetics
+  geom_tile() + # Use geom_tile for heatmap
+  theme_bw() + # Set theme
+  scale_fill_gradient2(low = "blue", # Choose low color
+    mid = "white", # Choose mid color
+    high = "red", # Choose high color
+    midpoint =mean(res_db$auc), # Choose mid point
+    space = "Lab", 
+    na.value ="grey", # Choose NA value
+    guide = "colourbar", # Set color bar
+    aesthetics = "fill") + # Select aesthetics to apply
+  labs(x = "Subsample", y = "Column Sample by Tree", fill = "AUC") # Set labels
+g_7 
+g_8 <- ggplot(res_db, aes(y = colsample_by_tree, x = subsample, fill = error)) + # set aesthetics
+  geom_tile() + # Use geom_tile for heatmap
+  theme_bw() + # Set theme
+  scale_fill_gradient2(low = "blue", # Choose low color
+    mid = "white", # Choose mid color
+    high = "red", # Choose high color
+    midpoint =mean(res_db$error), # Choose mid point
+    space = "Lab", 
+    na.value ="grey", # Choose NA value
+    guide = "colourbar", # Set color bar
+    aesthetics = "fill") + # Select aesthetics to apply
+  labs(x = "Subsample", y = "Column Sample by Tree", fill = "Error") # Set labels
+g_8 
+# Will go with a Subsample and Column sample of 0.9 
+```
+
+```{r}
+bst_final <- xgboost(data = dtrain, # Set training data
+               
+              eta = 0.25, # Set learning rate
+              max.depth =  10, # Set max depth
+              min_child_weight = 5, # Set minimum number of samples in node to split
+              gamma = 0.1, # Set minimum loss reduction for split
+              subsample =  0.9, # Set proportion of training data to use in tree
+              colsample_bytree = 0.9, # Set number of variables to use in each tree
+               
+              nrounds = 250, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "auc",
+              eval_metric = "error") # Set evaluation metric to use
+
+
+boost_preds <- predict(bst_final, dtest) # Create predictions for XGBoost model
+
+pred_dat <- cbind.data.frame(boost_preds , test_db$label)
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class <- rep('nonTOR', length(boost_preds))
+boost_pred_class[boost_preds >= 0.5] <- 'TOR'
+
+t <- table(boost_pred_class, test_db$label) # Create table
+confusionMatrix(t, positive = "TOR")
+```
+
+```{r}
+# Seems imbalanced, scale the weights of the samples 
+summary(as.factor(train_db$label))
+zero_weight <- 47828/6436
+bst_bal <- xgboost(data = dtrain, # Set training data
+               
+              eta = 0.25, # Set learning rate
+              max.depth =  10, # Set max depth
+              min_child_weight = 5, # Set minimum number of samples in node to split
+              gamma = 0.1, # Set minimum loss reduction for split
+              subsample =  0.9, # Set proportion of training data to use in tree
+              colsample_bytree = 0.9, # Set number of variables to use in each tree
+               
+              nrounds = 250, # Set number of rounds
+              early_stopping_rounds = 20, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              scale_pos_weight = zero_weight,
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "auc",
+              eval_metric = "error")
+
+boost_preds_bal <- predict(bst_bal, dtest) # Create predictions for XGBoost model
+
+pred_dat <- cbind.data.frame(boost_preds_bal , test_db$label)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class <- rep('nonTOR', length(boost_preds_bal))
+boost_pred_class[boost_preds_bal >= 0.5] <- 'TOR'
+
+
+t <- table(boost_pred_class, test_db$label) # Create table
+confusionMatrix(t, positive = "TOR") # Produce confusion matrix
+```
+
+End result: Accuracy: 0.9902, Sensitivity: 0.9695, Specificity: 0.9930
+
+3 marks for analysis decisions, modeling decisions and code readability/usability.
